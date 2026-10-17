@@ -1,0 +1,116 @@
+; MagicKeyboardFilter - lower filter for Apple Magic Keyboards (Bluetooth + USB)
+; Installs the stock HID function driver (hidbth / hidusb) plus MagicKeyboardFilter as LowerFilter.
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = HIDClass
+ClassGuid   = {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Provider    = %Provider%
+CatalogFile = MagicKeyboardFilter.cat
+DriverVer   = 10/17/2026,1.0.0.0
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[SourceDisksFiles]
+MagicKeyboardFilter.sys = 1
+
+[Manufacturer]
+%Mfg% = Models, NTamd64.10.0...19041
+
+[Models.NTamd64.10.0...19041]
+%MK.Bth%    = Bth_Inst, BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&0001004c_PID&0267
+%MKN.Bth%   = Bth_Inst, BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&0001004c_PID&026C
+%MK2.Bth%   = Bth_Inst, BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&0001004c_PID&029C
+%MK2T.Bth%  = Bth_Inst, BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&0001004c_PID&029A
+%MKN2T.Bth% = Bth_Inst, BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&0001004c_PID&029F
+%MK3.Bth%   = Bth_Inst, BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&0001004c_PID&0320
+%MK3T.Bth%  = Bth_Inst, BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&0001004c_PID&0321
+%MKN3T.Bth% = Bth_Inst, BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&0001004c_PID&0322
+%MK.Usb%    = Usb_Inst, USB\VID_05AC&PID_0267&MI_01
+%MKN.Usb%   = Usb_Inst, USB\VID_05AC&PID_026C&MI_01
+%MK2.Usb%   = Usb_Inst, USB\VID_05AC&PID_029C&MI_01
+%MK2T.Usb%  = Usb_Inst, USB\VID_05AC&PID_029A&MI_01
+%MKN2T.Usb% = Usb_Inst, USB\VID_05AC&PID_029F&MI_01
+%MK3.Usb%   = Usb_Inst, USB\VID_05AC&PID_0320&MI_01
+%MK3T.Usb%  = Usb_Inst, USB\VID_05AC&PID_0321&MI_01
+%MKN3T.Usb% = Usb_Inst, USB\VID_05AC&PID_0322&MI_01
+
+[Filter_CopyFiles]
+MagicKeyboardFilter.sys
+
+[Filter_AddReg]
+HKR,,"LowerFilters",0x00010000,"MagicKeyboardFilter"
+HKR,,"SelectiveSuspendOn",0x00010001,0
+
+[Filter_Service]
+DisplayName   = %ServiceDesc%
+ServiceType   = 1   ; SERVICE_KERNEL_DRIVER
+StartType     = 3   ; SERVICE_DEMAND_START
+ErrorControl  = 1   ; SERVICE_ERROR_NORMAL
+ServiceBinary = %13%\MagicKeyboardFilter.sys
+
+; ---------------- Bluetooth (hidbth)
+[Bth_Inst.NT]
+Include    = hidbth.inf
+Needs      = HIDBTH_Inst.NT
+CopyFiles  = Filter_CopyFiles
+
+[Bth_Inst.NT.HW]
+Include = keyboard.inf
+Needs   = HID_Keyboard_Inst.NT.HW
+AddReg  = Filter_AddReg
+
+[Bth_Inst.NT.Services]
+Include    = hidbth.inf
+Needs      = HIDBTH_Inst.NT.Services
+AddService = MagicKeyboardFilter,,Filter_Service
+
+[Bth_Inst.NT.Wdf]
+KmdfService = MagicKeyboardFilter, Filter_Wdf
+
+; ---------------- USB (hidusb)
+[Usb_Inst.NT]
+Include    = input.inf
+Needs      = HID_Inst.NT
+CopyFiles  = Filter_CopyFiles
+
+[Usb_Inst.NT.HW]
+AddReg  = Filter_AddReg
+
+[Usb_Inst.NT.Services]
+Include    = input.inf
+Needs      = HID_Inst.NT.Services
+AddService = MagicKeyboardFilter,,Filter_Service
+
+[Usb_Inst.NT.Wdf]
+KmdfService = MagicKeyboardFilter, Filter_Wdf
+
+[Filter_Wdf]
+KmdfLibraryVersion = 1.15
+
+[Strings]
+Provider    = "MagicKeyboard (personal build)"
+Mfg         = "Apple Inc."
+DiskName    = "MagicKeyboardFilter install disk"
+ServiceDesc = "MagicKeyboard remap filter"
+MK.Bth      = "Magic Keyboard (2015) - MagicKeyboard (Bluetooth)"
+MKN.Bth     = "Magic Keyboard with Numeric Keypad (2017) - MagicKeyboard (Bluetooth)"
+MK2.Bth     = "Magic Keyboard (2021) - MagicKeyboard (Bluetooth)"
+MK2T.Bth    = "Magic Keyboard with Touch ID (2021) - MagicKeyboard (Bluetooth)"
+MKN2T.Bth   = "Magic Keyboard with Touch ID and Numeric Keypad (2021) - MagicKeyboard (Bluetooth)"
+MK3.Bth     = "Magic Keyboard (2024) - MagicKeyboard (Bluetooth)"
+MK3T.Bth    = "Magic Keyboard with Touch ID (2024) - MagicKeyboard (Bluetooth)"
+MKN3T.Bth   = "Magic Keyboard with Touch ID and Numeric Keypad (2024) - MagicKeyboard (Bluetooth)"
+MK.Usb      = "Magic Keyboard (2015) - MagicKeyboard (USB)"
+MKN.Usb     = "Magic Keyboard with Numeric Keypad (2017) - MagicKeyboard (USB)"
+MK2.Usb     = "Magic Keyboard (2021) - MagicKeyboard (USB)"
+MK2T.Usb    = "Magic Keyboard with Touch ID (2021) - MagicKeyboard (USB)"
+MKN2T.Usb   = "Magic Keyboard with Touch ID and Numeric Keypad (2021) - MagicKeyboard (USB)"
+MK3.Usb     = "Magic Keyboard (2024) - MagicKeyboard (USB)"
+MK3T.Usb    = "Magic Keyboard with Touch ID (2024) - MagicKeyboard (USB)"
+MKN3T.Usb   = "Magic Keyboard with Touch ID and Numeric Keypad (2024) - MagicKeyboard (USB)"

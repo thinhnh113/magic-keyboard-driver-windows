@@ -1,0 +1,70 @@
+<Window x:Class="MagicKeyboard.Gui.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="MagicKeyboard" Height="620" Width="760"
+        Icon="pack://application:,,,/Assets/MagicKeyboard.ico"
+        WindowStartupLocation="CenterScreen" Background="#FFF6F7F9"
+        FontFamily="Segoe UI" FontSize="13">
+    <Window.Resources>
+        <Style TargetType="TabItem">
+            <Setter Property="Padding" Value="14,7"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,0,0,14"/>
+            <Setter Property="Padding" Value="12"/>
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#FF6B7280"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,2,0,8"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="#FF2D7DF6" Padding="18,14">
+            <StackPanel>
+                <TextBlock Text="MagicKeyboard" Foreground="White" FontSize="19" FontWeight="SemiBold"/>
+                <TextBlock x:Name="StatusLine" Text="" Foreground="#CCFFFFFF" Margin="0,2,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" BorderBrush="#FFE2E5EA" BorderThickness="0,1,0,0" Padding="14,10">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="ResetBtn" Content="Reset to defaults" Width="140" Height="30" Margin="0,0,10,0"/>
+                <Button x:Name="CloseBtn" Content="Close" Width="90" Height="30"/>
+            </StackPanel>
+        </Border>
+
+        <TabControl x:Name="Tabs" Margin="12" BorderThickness="0" Background="Transparent">
+            <TabItem Header="General">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="4">
+                    <StackPanel x:Name="GeneralPanel" Margin="4"/>
+                </ScrollViewer>
+            </TabItem>
+            <TabItem Header="Function keys">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="4">
+                    <StackPanel x:Name="FKeysPanel" Margin="4"/>
+                </ScrollViewer>
+            </TabItem>
+            <TabItem Header="Modifiers">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="4">
+                    <StackPanel x:Name="ModsPanel" Margin="4"/>
+                </ScrollViewer>
+            </TabItem>
+            <TabItem Header="Special keys">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="4">
+                    <StackPanel x:Name="SpecialPanel" Margin="4"/>
+                </ScrollViewer>
+            </TabItem>
+            <TabItem Header="Battery">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="4">
+                    <StackPanel x:Name="BatteryPanel" Margin="4"/>
+                </ScrollViewer>
+            </TabItem>
+            <TabItem Header="About">
+                <StackPanel x:Name="AboutPanel" Margin="8"/>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>

@@ -1,0 +1,49 @@
+# ---- .NET build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+*.user
+*.suo
+*.rsuser
+.vs/
+TestResults/
+*.trx
+*.coverage
+
+# ---- Packaging output (build-installer.cmd) and older single-file builds
+artifacts/
+dist/
+
+# ---- Driver build output (driver\MagicKeyboardFilter\build.cmd, tests\run-tests.cmd)
+driver/MagicKeyboardFilter/out/
+driver/MagicKeyboardFilter/obj/
+driver/MagicKeyboardFilter/tests/obj/
+*.sys
+*.cat
+*.pdb
+*.ilk
+*.obj
+*.tlog
+*.lastbuildstate
+
+# ---- Signing material: never commit certificates or private keys
+*.cer
+*.pfx
+*.p12
+*.pvk
+*.spc
+*.snk
+
+# ---- Logs and local junk
+*.log
+*.tmp
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ---- Editors
+.vscode/
+.idea/
+*.swp

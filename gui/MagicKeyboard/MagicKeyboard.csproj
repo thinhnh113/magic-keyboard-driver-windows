@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>   <!-- for the tray NotifyIcon -->
+    <!-- Not "MagicKeyboardUtilities": that is the vendor app's process name. -->
+    <AssemblyName>MagicKeyboard</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>MagicKeyboard.Gui</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\MagicKeyboard.ico</ApplicationIcon>
+    <Product>MagicKeyboard</Product>
+    <AssemblyTitle>MagicKeyboard</AssemblyTitle>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Regenerate with tools\icon\make-icon.ps1. Embedded for the tray icon, Resource for the WPF window. -->
+    <EmbeddedResource Include="Assets\MagicKeyboard.ico" LogicalName="MagicKeyboard.ico" />
+    <Resource Include="Assets\MagicKeyboard.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Avoid WinForms/WPF type clashes (Application, CheckBox, GroupBox, ...).
+         WinForms types are referenced via the 'WinForms' alias in code. -->
+    <Using Remove="System.Windows.Forms" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\shared\MagicKeyboard.Shared\MagicKeyboard.Shared.csproj" />    <PackageReference Include="System.Management" Version="8.0.0" />
+  </ItemGroup>
+</Project>
