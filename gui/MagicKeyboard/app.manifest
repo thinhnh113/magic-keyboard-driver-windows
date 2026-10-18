@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
-  <assemblyIdentity version="1.0.0.0" name="MagicKeyboardUtilities"/>
+  <assemblyIdentity version="1.0.0.0" name="MagicKeyboard"/>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>
-        <!-- The GUI only writes settings.json; the service (SYSTEM) talks to the
-             driver. No elevation required for normal use. -->
+        <!-- The driver's control device grants the interactive user access, so no elevation is needed. -->
         <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
       </requestedPrivileges>
     </security>
@@ -15,9 +14,5 @@
       <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/> <!-- Win10/11 -->
     </application>
   </compatibility>
-  <application xmlns="urn:schemas-microsoft-com:asm.v3">
-    <windowsSettings>
-      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
-    </windowsSettings>
-  </application>
+  <!-- DPI awareness comes from ApplicationHighDpiMode in the .csproj (WinForms). -->
 </assembly>

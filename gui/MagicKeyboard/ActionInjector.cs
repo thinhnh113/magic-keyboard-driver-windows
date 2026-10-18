@@ -13,7 +13,7 @@ internal sealed class ActionInjector : IDisposable
 
     private KeyboardSettings _settings;
     private readonly object _gate = new();
-    private readonly Dictionary<FKeyAction, Timer> _repeats = new();
+    private readonly Dictionary<FKeyAction, System.Threading.Timer> _repeats = new();
 
     public ActionInjector(KeyboardSettings settings) => _settings = settings;
 
@@ -71,7 +71,7 @@ internal sealed class ActionInjector : IDisposable
         lock (_gate)
         {
             if (_repeats.Remove(a.Action, out var old)) old.Dispose();
-            if (a.Down) _repeats[a.Action] = new Timer(_ => tick(), null, RepeatDelayMs, RepeatRateMs);
+            if (a.Down) _repeats[a.Action] = new System.Threading.Timer(_ => tick(), null, RepeatDelayMs, RepeatRateMs);
         }
     }
 
