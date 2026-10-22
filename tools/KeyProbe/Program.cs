@@ -30,7 +30,7 @@ if (ch == null)
 var status = ch.GetStatus();
 if (mode == "raw") return Raw(ch, status, seconds, args.Contains("--force"));
 
-Console.WriteLine($"protocol v{status.ProtocolVersion}  configLoaded={status.ConfigLoaded}  appSubscribers={status.Subscribers}");
+Console.WriteLine($"protocol v{status.ProtocolVersion}  controlDevice=#{status.ControlGeneration}  configLoaded={status.ConfigLoaded}  appSubscribers={status.Subscribers}");
 foreach (var d in status.Devices)
 {
     Console.WriteLine($"#{d.Index} PID {d.ProductId:X4} {d.Transport}  layoutKnown={d.LayoutKnown}  " +

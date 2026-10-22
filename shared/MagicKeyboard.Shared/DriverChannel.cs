@@ -8,7 +8,7 @@ public sealed record KeyboardDevice(int Index, ushort ProductId, KeyboardTranspo
     uint InputReports, uint KeyboardReports, byte[] LastRaw, string InstanceId);
 
 public sealed record DriverStatus(uint ProtocolVersion, bool ConfigLoaded, uint Subscribers,
-    IReadOnlyList<KeyboardDevice> Devices);
+    IReadOnlyList<KeyboardDevice> Devices, uint ControlGeneration);
 
 public readonly record struct KeyAction(FKeyAction Action, bool Down, int CustomSlot);
 
@@ -42,7 +42,8 @@ public sealed class DriverChannel : IDisposable
                 d.LayoutKnown != 0, d.InputReports, d.KeyboardReports,
                 d.LastRaw.Take((int)Math.Min(d.LastRawLength, 16u)).ToArray(), d.InstanceId ?? ""));
         }
-        return new DriverStatus(s.ProtocolVersion, s.ConfigLoaded != 0, s.Subscribers, devices);
+        return new DriverStatus(s.ProtocolVersion, s.ConfigLoaded != 0, s.Subscribers, devices,
+            s.ProtocolVersion >= 4 ? s.ControlGeneration : 0);
     }
 
     public void SetConfig(MkConfig config) => Write(Protocol.IoctlSetConfig, config);
@@ -91,10 +92,12 @@ public sealed class DriverChannel : IDisposable
         finally { Marshal.FreeHGlobal(buf); }
     }
 
-    private T Read<T>(uint code) where T : struct
+    private unsafe T Read<T>(uint code) where T : struct
     {
         int size = Marshal.SizeOf<T>();
         IntPtr buf = Marshal.AllocHGlobal(size);
+        // Zeroed, so fields an older driver doesn't fill (shorter struct) read as 0, not leftover memory.
+        new Span<byte>((void*)buf, size).Clear();
         try
         {
             if (!IoctlWait(code, IntPtr.Zero, 0, buf, size)) throw new Win32Exception(Marshal.GetLastWin32Error());

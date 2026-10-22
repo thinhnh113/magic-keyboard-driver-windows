@@ -58,6 +58,8 @@ internal sealed class DriverLink : IDisposable
         try { _channel?.SetConfig(s.ToMkConfig()); } catch { /* reconnect loop re-pushes */ }
     }
 
+    private const int WatchdogMs = 3000;
+
     private void Run()
     {
         while (!_stopping)
@@ -68,8 +70,21 @@ internal sealed class DriverLink : IDisposable
             {
                 ch.Subscribe(actions: true, raw: false);
                 ch.SetConfig(_settings.ToMkConfig());
+                var status = ch.GetStatus();
+                uint generation = status.ControlGeneration;
                 _channel = ch;
-                SetState(ch.GetStatus().Devices.Count > 0 ? DriverState.Running : DriverState.NoDevice);
+                SetState(status.Devices.Count > 0 ? DriverState.Running : DriverState.NoDevice);
+                AppLog.Write($"connected to driver (control device #{generation}, {status.Devices.Count} keyboard(s))");
+
+                // The driver re-creates its control device when the keyboard is re-enumerated (e.g. after sleep).
+                // If our handle is left on the old one, our read would wait forever: detect it and reconnect.
+                using var watchdog = new System.Threading.Timer(_ =>
+                {
+                    if (!IsStale(ch, generation)) return;
+                    AppLog.Write($"control device #{generation} is stale; reconnecting");
+                    ch.CancelPendingReads();
+                }, null, WatchdogMs, WatchdogMs);
+
                 while (!_stopping)
                 {
                     var ev = ch.ReadEvent();
@@ -77,7 +92,7 @@ internal sealed class DriverLink : IDisposable
                     if (e.Type == Protocol.EventAction) _injector.Handle(e.Action);
                 }
             }
-            catch { /* device went away: fall through and retry */ }
+            catch (Exception ex) { AppLog.Write("driver link: " + ex.Message); /* device went away: retry */ }
             finally
             {
                 _channel = null;
@@ -86,6 +101,18 @@ internal sealed class DriverLink : IDisposable
             }
             if (!_stopping) Thread.Sleep(1000);
         }
+    }
+
+    // Our handle is stale when it no longer reaches the current control device: either a fresh handle reports
+    // a different generation, or there is no control device at all right now (no keyboard attached).
+    private static bool IsStale(DriverChannel ch, uint generation)
+    {
+        try { if (ch.GetStatus().ControlGeneration != generation) return true; }
+        catch { return true; }
+        using var fresh = DriverChannel.TryOpen();
+        if (fresh == null) return true;
+        try { return fresh.GetStatus().ControlGeneration != generation; }
+        catch { return true; }
     }
 
     public void Dispose()

@@ -6,7 +6,7 @@
 #define MKF_SYMLINK_NAME    L"\\DosDevices\\MagicKeyboardFilter"
 #define MKF_USER_PATH       "\\\\.\\MagicKeyboardFilter"
 
-#define MKF_PROTOCOL_VERSION 3
+#define MKF_PROTOCOL_VERSION 4
 #define MKF_MAX_DEVICES      8
 #define MKF_EVENT_DATA       32
 
@@ -123,6 +123,10 @@ typedef struct _MKF_STATUS {
     ULONG Subscribers;      // handles subscribed to actions
     ULONG ConfigLoaded;     // 1 when a valid config is active (pushed or loaded from the registry)
     MKF_DEVICE_INFO Devices[MKF_MAX_DEVICES];
+    // v4: generation of the control device this request was sent to. The control device is re-created
+    // when the last keyboard goes away and comes back (e.g. after sleep); a handle whose generation differs
+    // from a freshly opened handle's is stale and must be reopened.
+    ULONG ControlGeneration;
 } MKF_STATUS;
 
 typedef struct _MKF_EVENT {

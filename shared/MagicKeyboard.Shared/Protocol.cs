@@ -34,7 +34,7 @@ public enum KeyboardTransport : byte { Unknown = 0, Bluetooth = 1, Usb = 2 }
 public static class Protocol
 {
     public const string UserPath = @"\\.\MagicKeyboardFilter";
-    public const uint ProtocolVersion = 3;
+    public const uint ProtocolVersion = 4;
     public const int MaxDevices = 8;
     public const int EventData = 32;
 
@@ -127,6 +127,7 @@ public struct MkfStatus
     public uint ConfigLoaded;
     [MarshalAs(UnmanagedType.ByValArray, SizeConst = Protocol.MaxDevices)]
     public MkfDeviceInfo[] Devices;
+    public uint ControlGeneration;   // v4: identifies the control device this handle is on
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 1)]

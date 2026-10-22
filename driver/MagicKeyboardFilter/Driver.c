@@ -19,11 +19,13 @@
 #include <bthddi.h>
 #include <usb.h>
 #include <usbioctl.h>
+#include <ntstrsafe.h>
 #include "Public.h"
 #include "Remap.h"
 
 #define MKF_TAG 'fKgM'
 #define MKF_RING_SIZE 64
+#define MKF_STALE_ACTION_100NS (2LL * 10 * 1000 * 1000)   // 2 s
 #define HIDP_DATA_INPUT 0xA1   // BT HIDP: DATA | Input
 
 typedef struct _FILTER_CONTEXT {
@@ -48,6 +50,11 @@ typedef struct _FILE_CONTEXT {
 } FILE_CONTEXT, *PFILE_CONTEXT;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(FILE_CONTEXT, FileGetContext)
 
+typedef struct _CONTROL_CONTEXT {
+    ULONG Generation;          // MKF_STATUS.ControlGeneration
+} CONTROL_CONTEXT, *PCONTROL_CONTEXT;
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(CONTROL_CONTEXT, ControlGetContext)
+
 // ---- globals (g_Lock: spin lock for ring, devices, config snapshot; g_ControlLock: PASSIVE lifetime) ----
 static KSPIN_LOCK g_Lock;
 static WDFWAITLOCK g_ControlLock;
@@ -61,6 +68,7 @@ static MK_REMAP_CONFIG g_Compiled;
 static BOOLEAN g_ConfigLoaded;
 static volatile LONG g_Subscribers;
 static volatile LONG g_RawSubscribers;
+static ULONG g_Generation;          // bumped for every control device (g_ControlLock)
 
 DRIVER_INITIALIZE DriverEntry;
 EVT_WDF_DRIVER_DEVICE_ADD EvtDeviceAdd;
@@ -270,10 +278,22 @@ VOID EvtControlCleanup(WDFOBJECT Object)
         g_ControlDevice = NULL;
         g_PendingReads = NULL;
         g_RingCount = 0;
+        g_Subscribers = 0;      // those subscriptions were on this control device
+        g_RawSubscribers = 0;
     }
     KeReleaseSpinLock(&g_Lock, irql);
 }
 
+// Lifetime of the control device
+// ------------------------------
+// It is deleted when the last keyboard goes away (so the driver can unload and be updated) and created
+// again when one comes back, e.g. after sleep re-enumerates the Bluetooth keyboard. An app may still hold
+// a handle to the old one, which keeps that object alive. Three rules keep this safe:
+//  * Each control device gets a unique NT name (...FilterN), so a lingering old one never blocks the new one.
+//  * The \\.\MagicKeyboardFilter link is ours (IoCreateSymbolicLink), not WdfDeviceCreateSymbolicLink: the
+//    framework deletes a device's link by name when the device is finally destroyed, which for an old control
+//    device kept alive by a handle would remove the link of its replacement.
+//  * DeleteControlDevice completes the app's parked reads, so the app notices and reconnects.
 static NTSTATUS CreateControlDevice(WDFDRIVER Driver)
 {
     PWDFDEVICE_INIT init;
@@ -284,10 +304,16 @@ static NTSTATUS CreateControlDevice(WDFDRIVER Driver)
     WDFQUEUE q;
     NTSTATUS status;
     KIRQL irql;
-    DECLARE_CONST_UNICODE_STRING(name, MKF_DEVICE_NAME);
+    WCHAR nameBuf[64];
+    UNICODE_STRING name;
+    ULONG generation = ++g_Generation;   // caller holds g_ControlLock
     DECLARE_CONST_UNICODE_STRING(link, MKF_SYMLINK_NAME);
     // SYSTEM, admins and the interactive user (the tray app runs unelevated).
     DECLARE_CONST_UNICODE_STRING(sddl, L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)");
+
+    RtlInitEmptyUnicodeString(&name, nameBuf, sizeof(nameBuf));
+    status = RtlUnicodeStringPrintf(&name, L"%ws%u", MKF_DEVICE_NAME, generation);
+    if (!NT_SUCCESS(status)) return status;
 
     IoDeleteSymbolicLink((PUNICODE_STRING)&link);   // stale link from an earlier control device
 
@@ -300,13 +326,14 @@ static NTSTATUS CreateControlDevice(WDFDRIVER Driver)
     WdfDeviceInitSetFileObjectConfig(init, &fc, &fa);
 
     status = WdfDeviceInitAssignName(init, &name);
-    WDF_OBJECT_ATTRIBUTES_INIT(&ca);
+    WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&ca, CONTROL_CONTEXT);
     ca.EvtCleanupCallback = EvtControlCleanup;
     ca.ExecutionLevel = WdfExecutionLevelPassive;   // IOCTL handlers touch the registry
     if (NT_SUCCESS(status)) status = WdfDeviceCreate(&init, &ca, &dev);
     if (!NT_SUCCESS(status)) { if (init) WdfDeviceInitFree(init); return status; }
+    ControlGetContext(dev)->Generation = generation;
 
-    status = WdfDeviceCreateSymbolicLink(dev, &link);
+    status = IoCreateSymbolicLink((PUNICODE_STRING)&link, &name);
     if (!NT_SUCCESS(status)) goto fail;
 
     WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&qc, WdfIoQueueDispatchSequential);
@@ -405,6 +432,7 @@ VOID EvtFilterCleanup(WDFOBJECT Object)
     KIRQL irql;
     ULONG i, remaining = 0;
     WDFDEVICE cdo = NULL;
+    WDFQUEUE reads = NULL;
     DECLARE_CONST_UNICODE_STRING(link, MKF_SYMLINK_NAME);
 
     WdfWaitLockAcquire(g_ControlLock, NULL);
@@ -413,12 +441,19 @@ VOID EvtFilterCleanup(WDFOBJECT Object)
         if (g_Devices[i] == ctx) g_Devices[i] = NULL;
         if (g_Devices[i]) remaining++;
     }
-    if (remaining == 0) { cdo = g_ControlDevice; g_ControlDevice = NULL; g_PendingReads = NULL; g_RingCount = 0; }
+    if (remaining == 0) {
+        cdo = g_ControlDevice; reads = g_PendingReads;
+        g_ControlDevice = NULL; g_PendingReads = NULL; g_RingCount = 0;
+        // Subscriptions belonged to this control device; its handles must not keep F-keys swallowed.
+        g_Subscribers = 0; g_RawSubscribers = 0;
+    }
     KeReleaseSpinLock(&g_Lock, irql);
     if (cdo) {
         // Last keyboard gone: delete the control device so the driver can unload (and be updated).
-        WdfObjectDelete(cdo);
         IoDeleteSymbolicLink((PUNICODE_STRING)&link);
+        // Complete the app's parked reads (as cancelled) so it notices and reconnects to the next one.
+        if (reads) WdfIoQueuePurgeSynchronously(reads);
+        WdfObjectDelete(cdo);
     }
     WdfWaitLockRelease(g_ControlLock);
 }
@@ -509,13 +544,18 @@ VOID UrbCompletion(WDFREQUEST Request, WDFIOTARGET Target, PWDF_REQUEST_COMPLETI
 
 // ------------------------------------------------------------------ control device (app interface)
 
-static VOID UpdateSubscription(PFILE_CONTEXT Fc, ULONG NewFlags)
+// Only handles on the current control device count. When a control device is retired its subscriptions are
+// dropped wholesale (EvtFilterCleanup), so its handles must not change the counts again later.
+static VOID UpdateSubscription(WDFFILEOBJECT File, ULONG NewFlags)
 {
-    if ((Fc->Flags & MKF_SUB_ACTIONS) && !(NewFlags & MKF_SUB_ACTIONS)) InterlockedDecrement(&g_Subscribers);
-    if (!(Fc->Flags & MKF_SUB_ACTIONS) && (NewFlags & MKF_SUB_ACTIONS)) InterlockedIncrement(&g_Subscribers);
-    if ((Fc->Flags & MKF_SUB_RAW) && !(NewFlags & MKF_SUB_RAW)) InterlockedDecrement(&g_RawSubscribers);
-    if (!(Fc->Flags & MKF_SUB_RAW) && (NewFlags & MKF_SUB_RAW)) InterlockedIncrement(&g_RawSubscribers);
-    Fc->Flags = NewFlags;
+    PFILE_CONTEXT fc = FileGetContext(File);
+    if (WdfFileObjectGetDevice(File) == g_ControlDevice) {
+        if ((fc->Flags & MKF_SUB_ACTIONS) && !(NewFlags & MKF_SUB_ACTIONS)) InterlockedDecrement(&g_Subscribers);
+        if (!(fc->Flags & MKF_SUB_ACTIONS) && (NewFlags & MKF_SUB_ACTIONS)) InterlockedIncrement(&g_Subscribers);
+        if ((fc->Flags & MKF_SUB_RAW) && !(NewFlags & MKF_SUB_RAW)) InterlockedDecrement(&g_RawSubscribers);
+        if (!(fc->Flags & MKF_SUB_RAW) && (NewFlags & MKF_SUB_RAW)) InterlockedIncrement(&g_RawSubscribers);
+    }
+    fc->Flags = NewFlags;
 }
 
 // The app went away (exit or crash): stop routing actions to it so keys fall back to plain F-keys,
@@ -525,7 +565,7 @@ VOID EvtControlFileCleanup(WDFFILEOBJECT FileObject)
     WDFQUEUE q;
     WDFREQUEST req;
     KIRQL irql;
-    UpdateSubscription(FileGetContext(FileObject), 0);
+    UpdateSubscription(FileObject, 0);
 
     KeAcquireSpinLock(&g_Lock, &irql);
     q = g_PendingReads;
@@ -541,9 +581,17 @@ VOID EvtControlIoctl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutLen, size_t I
     NTSTATUS status = STATUS_INVALID_DEVICE_REQUEST;
     ULONG_PTR info = 0;
     KIRQL irql;
-    UNREFERENCED_PARAMETER(Queue);
+    WDFDEVICE device = WdfIoQueueGetDevice(Queue);
+    // A handle on a retired control device (still alive because the app holds it) must reconnect rather
+    // than subscribe to, or drain, the current one.
+    BOOLEAN stale = device != g_ControlDevice;
     UNREFERENCED_PARAMETER(OutLen);
     UNREFERENCED_PARAMETER(InLen);
+
+    if (stale && (Code == IOCTL_MKF_SUBSCRIBE || Code == IOCTL_MKF_READ_EVENT)) {
+        WdfRequestComplete(Request, STATUS_DEVICE_REMOVED);
+        return;
+    }
 
     switch (Code) {
     case IOCTL_MKF_GET_STATUS: {
@@ -553,6 +601,7 @@ VOID EvtControlIoctl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutLen, size_t I
         if (!NT_SUCCESS(status)) break;
         RtlZeroMemory(out, sizeof(*out));
         out->ProtocolVersion = MKF_PROTOCOL_VERSION;
+        out->ControlGeneration = ControlGetContext(device)->Generation;
         out->Subscribers = (ULONG)g_Subscribers;
         KeAcquireSpinLock(&g_Lock, &irql);
         out->ConfigLoaded = g_ConfigLoaded;
@@ -601,7 +650,11 @@ VOID EvtControlIoctl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutLen, size_t I
         ULONG* in;
         status = WdfRequestRetrieveInputBuffer(Request, sizeof(ULONG), (PVOID*)&in, NULL);
         if (!NT_SUCCESS(status)) break;
-        UpdateSubscription(FileGetContext(WdfRequestGetFileObject(Request)), *in & (MKF_SUB_ACTIONS | MKF_SUB_RAW));
+        UpdateSubscription(WdfRequestGetFileObject(Request), *in & (MKF_SUB_ACTIONS | MKF_SUB_RAW));
+        // A new subscriber starts clean: never replay key presses queued while nobody was reading.
+        KeAcquireSpinLock(&g_Lock, &irql);
+        g_RingCount = 0;
+        KeReleaseSpinLock(&g_Lock, irql);
         break;
     }
     case IOCTL_MKF_READ_EVENT: {
@@ -609,6 +662,12 @@ VOID EvtControlIoctl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutLen, size_t I
         status = WdfRequestRetrieveOutputBuffer(Request, sizeof(MKF_EVENT), (PVOID*)&out, NULL);
         if (!NT_SUCCESS(status)) break;
         KeAcquireSpinLock(&g_Lock, &irql);
+        // Drop key actions too old to still mean anything (e.g. the app was stalled).
+        while (g_RingCount > 0 && g_Ring[g_RingHead].Type == MkEventAction &&
+               (LONGLONG)KeQueryInterruptTime() - g_Ring[g_RingHead].Timestamp > MKF_STALE_ACTION_100NS) {
+            g_RingHead = (g_RingHead + 1) % MKF_RING_SIZE;
+            g_RingCount--;
+        }
         if (g_RingCount > 0) {
             *out = g_Ring[g_RingHead];
             g_RingHead = (g_RingHead + 1) % MKF_RING_SIZE;
