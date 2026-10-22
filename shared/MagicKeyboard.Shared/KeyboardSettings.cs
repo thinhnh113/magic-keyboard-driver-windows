@@ -29,6 +29,11 @@ public sealed class KeyboardSettings
     public bool ShowBatteryInTray { get; set; } = true;
     public bool StartWithWindows { get; set; } = true;
 
+    // Battery saving: drop the Bluetooth link so the keyboard can deep-sleep. A key press reconnects it
+    // (that key may be lost), so both are opt-in.
+    public bool DisconnectOnDisplayOff { get; set; }
+    public bool DisconnectOnLock { get; set; }
+
     // Per-top-row media action (index 0 = F1).
     public FKeyAction[] FunctionKeys { get; set; } = DefaultFunctionKeys();
 

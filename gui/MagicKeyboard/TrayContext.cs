@@ -1,5 +1,6 @@
 using MagicKeyboard.Shared;
 using MagicKeyboard.Shared.Hid;
+using Microsoft.Win32;
 
 namespace MagicKeyboard.Gui;
 
@@ -15,6 +16,7 @@ internal sealed class TrayContext : ApplicationContext
     private readonly DriverLink _link;
     private readonly SynchronizationContext _ui;
     private SettingsForm? _form;
+    private bool _displayOff, _sessionLocked;
 
     public TrayContext(bool startMinimized)
     {
@@ -44,6 +46,9 @@ internal sealed class TrayContext : ApplicationContext
 
         _battery.Updated += b => UiInvoke(() => OnBattery(b));
         _battery.Start();
+
+        SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        SystemEvents.SessionSwitch += OnSessionSwitch;
 
         UpdateTray();
         if (!startMinimized) ShowSettings();
@@ -96,6 +101,57 @@ internal sealed class TrayContext : ApplicationContext
         _form?.UpdateStatus();
     }
 
+    // ------------------------------------------------------------------ power / session
+
+    private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
+    {
+        // Bluetooth needs a moment to reconnect after resume.
+        if (e.Mode == PowerModes.Resume) Task.Delay(5000).ContinueWith(_ => UpdateBatteryPause(refresh: true));
+    }
+
+    private void OnSessionSwitch(object? sender, SessionSwitchEventArgs e)
+    {
+        bool wasLocked = _sessionLocked;
+        _sessionLocked = e.Reason is SessionSwitchReason.SessionLock or SessionSwitchReason.SessionLogoff
+            or SessionSwitchReason.ConsoleDisconnect;
+        UpdateBatteryPause(refresh: wasLocked && !_sessionLocked);
+        if (e.Reason == SessionSwitchReason.SessionLock && Settings.DisconnectOnLock)
+            DisconnectSoon(() => _sessionLocked);
+    }
+
+    // 0 = off, 1 = on, 2 = dimmed (still visible, counts as on).
+    internal void OnDisplayState(bool on)
+    {
+        bool turnedOff = !on && !_displayOff, turnedOn = on && _displayOff;
+        _displayOff = !on;
+        UpdateBatteryPause(refresh: turnedOn);
+        if (turnedOff && Settings.DisconnectOnDisplayOff) DisconnectSoon(() => _displayOff);
+    }
+
+    // No battery reads (each one wakes the keyboard's radio) while nobody is looking.
+    private void UpdateBatteryPause(bool refresh)
+    {
+        _battery.Paused = _displayOff || _sessionLocked;
+        if (refresh && !_battery.Paused) _battery.Refresh();
+    }
+
+    // Drops the keyboard's Bluetooth link after a short grace period, if the condition still holds, so the
+    // keyboard can deep-sleep. A key press reconnects it.
+    private void DisconnectSoon(Func<bool> stillWanted)
+    {
+        Task.Delay(TimeSpan.FromSeconds(5)).ContinueWith(_ =>
+        {
+            if (!stillWanted()) return;
+            foreach (var d in _link.GetStatus()?.Devices ?? Array.Empty<KeyboardDevice>())
+            {
+                if (d.Transport != KeyboardTransport.Bluetooth) continue;
+                if (BluetoothLink.AddressFromInstanceId(d.InstanceId) is not { } addr) continue;
+                int err = BluetoothLink.Disconnect(addr);
+                AppLog.Write(err == 0 ? $"disconnected {addr:X12} to save battery" : $"disconnect {addr:X12} failed: error {err}");
+            }
+        });
+    }
+
     // ------------------------------------------------------------------ tray icon
 
     // Tooltip and icon follow MagicMouse's template, e.g. "MagicKeyboard: active - 19%".
@@ -122,6 +178,8 @@ internal sealed class TrayContext : ApplicationContext
 
     protected override void ExitThreadCore()
     {
+        SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        SystemEvents.SessionSwitch -= OnSessionSwitch;
         _battery.Dispose();
         _link.Dispose();
         _injector.Dispose();
@@ -136,20 +194,32 @@ internal sealed class TrayContext : ApplicationContext
     private sealed class MessageWindow : NativeWindow, IDisposable
     {
         private readonly TrayContext _owner;
+        private IntPtr _powerNotify;
 
         public MessageWindow(TrayContext owner)
         {
             _owner = owner;
             // Top-level (not message-only) so HWND_BROADCAST from a second instance reaches it.
             CreateHandle(new CreateParams { Caption = "MagicKeyboard.Messages" });
+            var g = NativeUi.GUID_CONSOLE_DISPLAY_STATE;
+            _powerNotify = NativeUi.RegisterPowerSettingNotification(Handle, ref g, 0);
         }
 
         protected override void WndProc(ref Message m)
         {
             if (m.Msg == NativeUi.ShowMessage) _owner.ShowSettings();
+            else if (m.Msg == NativeUi.WM_POWERBROADCAST && (int)m.WParam == NativeUi.PBT_POWERSETTINGCHANGE)
+            {
+                var s = System.Runtime.InteropServices.Marshal.PtrToStructure<NativeUi.POWERBROADCAST_SETTING>(m.LParam);
+                if (s.PowerSetting == NativeUi.GUID_CONSOLE_DISPLAY_STATE) _owner.OnDisplayState(s.Data != 0);
+            }
             base.WndProc(ref m);
         }
 
-        public void Dispose() => DestroyHandle();
+        public void Dispose()
+        {
+            if (_powerNotify != IntPtr.Zero) { NativeUi.UnregisterPowerSettingNotification(_powerNotify); _powerNotify = IntPtr.Zero; }
+            DestroyHandle();
+        }
     }
 }

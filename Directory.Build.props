@@ -1,7 +1,7 @@
 <Project>
   <PropertyGroup>
     <!-- One version for the app, tools and installer (MagicKeyboard-Setup-<version>.exe). -->
-    <Version>1.0.2</Version>
+    <Version>1.0.3</Version>
     <Product>MagicKeyboard</Product>
     <Company>MagicKeyboard (personal build)</Company>
     <LangVersion>latest</LangVersion>

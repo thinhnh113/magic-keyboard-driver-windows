@@ -113,6 +113,14 @@ internal sealed class SettingsForm : Form
         row.Controls.Add(Button("Refresh battery", () => _owner.RefreshBattery()));
         row.Controls.Add(Button("Refresh status", UpdateStatus));
         info.Controls.Add(row);
+
+        var power = Group(flow, "Power");
+        Check(power, "Disconnect the keyboard while the display is off (deep sleep; press a key to reconnect)",
+            s => s.DisconnectOnDisplayOff, (s, v) => s.DisconnectOnDisplayOff = v);
+        Check(power, "Disconnect the keyboard while the PC is locked",
+            s => s.DisconnectOnLock, (s, v) => s.DisconnectOnLock = v);
+        Hint(power, "Reconnecting takes 1-2 seconds and the key that wakes the keyboard may be lost, "
+            + "so the first characters of a password can be dropped on the lock screen.");
         return page;
     }
 

@@ -3,20 +3,29 @@ using MagicKeyboard.Shared.Hid;
 
 namespace MagicKeyboard.Gui;
 
-// Polls the keyboard battery (KeyboardBattery: report 0x90, then Windows' Bluetooth property) every minute
-// and raises Updated with the latest reading. Keeps the last known value when a read fails, so the tray
-// doesn't flip to "unknown" while the keyboard is asleep.
+// Reads the keyboard battery (KeyboardBattery: report 0x90, then Windows' Bluetooth property) and raises
+// Updated with the latest reading. Keeps the last known value when a read fails, so the tray doesn't flip
+// to "unknown" while the keyboard is asleep.
+// Each read over Bluetooth briefly wakes the keyboard's radio, and the level moves about 1% a day, so it
+// reads every 15 minutes (every minute while charging, which costs the battery nothing) and not at all
+// while Paused (display off / locked). Refresh() reads right away, e.g. after wake or unlock.
 internal sealed class BatteryMonitor : IDisposable
 {
+    private static readonly TimeSpan Interval = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan ChargingInterval = TimeSpan.FromMinutes(1);
+
     private System.Threading.Timer? _timer;
     private int _polling;
+    private DateTime _lastPoll = DateTime.MinValue;
 
     public event Action<BatteryStatus?>? Updated;
 
     public BatteryStatus? Current { get; private set; }
 
+    public bool Paused { get; set; }
+
     public void Start() =>
-        _timer = new System.Threading.Timer(_ => Poll(), null, TimeSpan.Zero, TimeSpan.FromMinutes(1));
+        _timer = new System.Threading.Timer(_ => Tick(), null, TimeSpan.Zero, ChargingInterval);
 
     public void Refresh() => ThreadPool.QueueUserWorkItem(_ => Poll());
 
@@ -25,11 +34,19 @@ internal sealed class BatteryMonitor : IDisposable
         try { return KeyboardBattery.ReadAll(); } catch { return Array.Empty<BatteryStatus>(); }
     }
 
+    private void Tick()
+    {
+        if (Paused) return;
+        var due = Current?.Charging == true ? ChargingInterval : Interval;
+        if (DateTime.UtcNow - _lastPoll >= due - TimeSpan.FromSeconds(5)) Poll();
+    }
+
     private void Poll()
     {
         if (Interlocked.Exchange(ref _polling, 1) == 1) return;   // a slow read is still running
         try
         {
+            _lastPoll = DateTime.UtcNow;
             var reading = ReadAll().FirstOrDefault();
             if (reading != null) Current = reading;
             Updated?.Invoke(Current);
