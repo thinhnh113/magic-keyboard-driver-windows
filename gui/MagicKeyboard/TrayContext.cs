@@ -45,6 +45,7 @@ internal sealed class TrayContext : ApplicationContext
         _link.Start();
 
         _battery.Updated += b => UiInvoke(() => OnBattery(b));
+        _battery.LowLevel = () => Settings.LowBatteryThreshold;
         _battery.Start();
 
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
@@ -170,7 +171,8 @@ internal sealed class TrayContext : ApplicationContext
 
         var old = _tray.Icon;
         _tray.Icon = TrayIcons.Build(_link.State == DriverState.Running && Settings.Enabled,
-                                     Settings.ShowBatteryInTray ? b?.Percent : null);
+                                     Settings.ShowBatteryInTray ? b?.Percent : null,
+                                     Settings.ShowBatteryInTray && b?.Charging == true);
         old?.Dispose();
     }
 

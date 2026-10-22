@@ -4,6 +4,7 @@ using MagicKeyboard.Shared;
 // KeyProbe: diagnostics for MagicKeyboardFilter.
 //   KeyProbe              driver status and filtered keyboards
 //   KeyProbe raw [s]      stream raw keyboard reports for s seconds (default 15), decoded
+//   KeyProbe battery      read the battery; KeyProbe watch [s]: listen for battery reports the keyboard sends by itself
 // The driver has one event queue, so close the MagicKeyboard app before "raw" (it would steal events).
 
 var mode = args.FirstOrDefault() ?? "info";
@@ -16,6 +17,27 @@ if (mode == "battery")   // works without the driver
     var all = MagicKeyboard.Shared.Hid.KeyboardBattery.ReadAll();
     if (all.Count == 0) Console.WriteLine("battery: not available");
     foreach (var b in all) Console.WriteLine($"battery: {b.Device} {b.Percent}% charging={b.Charging} via {b.Source}");
+    return 0;
+}
+
+if (mode == "watch")   // listen on the battery collection: does the keyboard push report 0x90 by itself?
+{
+    var col = MagicKeyboard.Shared.Hid.KeyboardBattery.Enumerate(MagicKeyboard.Shared.Hid.KeyboardBattery.IsMagicKeyboard)
+        .FirstOrDefault(c => c.UsagePage == 0xFF00 && c.Usage == 0x14);
+    if (col == null) { Console.WriteLine("battery collection not found"); return 1; }
+    var h = MagicKeyboard.Shared.Hid.KeyboardBattery.OpenForReading(col);
+    if (h.IsInvalid) { Console.WriteLine("cannot open the battery collection"); return 1; }
+    Console.WriteLine($"Listening {seconds}s for unsolicited reports (plug / unplug the cable now)...");
+    var fs = new FileStream(h, FileAccess.Read, 0);
+    var watch = Stopwatch.StartNew();
+    new Thread(() =>
+    {
+        var buf = new byte[Math.Max(col.InputLength, 3)];
+        while (fs.Read(buf, 0, buf.Length) > 0)
+            Console.WriteLine($"{DateTime.Now:HH:mm:ss} +{watch.Elapsed.TotalSeconds,6:F1}s {Convert.ToHexString(buf)}");
+    }) { IsBackground = true }.Start();
+    Thread.Sleep(seconds * 1000);
+    Console.WriteLine("done.");
     return 0;
 }
 

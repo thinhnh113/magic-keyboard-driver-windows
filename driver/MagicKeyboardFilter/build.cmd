@@ -39,7 +39,9 @@ powershell -NoProfile -Command "$c = Get-ChildItem Cert:\CurrentUser\My | Where-
 rem 1) sign the .sys  2) stamp INF + build catalog over the signed .sys  3) sign the catalog
 %SIGN% "%OUT%\MagicKeyboardFilter.sys" || exit /b 1
 copy /y "%HERE%MagicKeyboardFilter.inf" "%OUT%\MagicKeyboardFilter.inf" >nul
-"%WDK%\bin\%VER%\x64\stampinf.exe" -f "%OUT%\MagicKeyboardFilter.inf" -d * -a amd64 -v * -k %KMDF% >nul || exit /b 1
+rem DriverVer date in UTC: Inf2Cat rejects a "future" date, which a local date is just after midnight east of UTC.
+for /f %%d in ('powershell -NoProfile -Command "[DateTime]::UtcNow.ToString('MM/dd/yyyy')"') do set DRVDATE=%%d
+"%WDK%\bin\%VER%\x64\stampinf.exe" -f "%OUT%\MagicKeyboardFilter.inf" -d %DRVDATE% -a amd64 -v * -k %KMDF% >nul || exit /b 1
 "%WDK%\bin\%VER%\x86\Inf2Cat.exe" /driver:"%OUT%" /os:10_X64,10_VB_X64,10_NI_X64 || exit /b 1
 %SIGN% "%OUT%\MagicKeyboardFilter.cat" || exit /b 1
 echo Built and test-signed: %OUT%

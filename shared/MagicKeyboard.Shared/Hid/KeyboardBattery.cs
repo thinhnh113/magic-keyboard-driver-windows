@@ -101,6 +101,11 @@ public static class KeyboardBattery
         return null;
     }
 
+    // The battery collection opened for ReadFile (input reports the keyboard sends by itself).
+    public static SafeFileHandle OpenForReading(HidCollection c) =>
+        HidNative.CreateFile(c.Path, HidNative.GENERIC_READ, HidNative.FILE_SHARE_READ | HidNative.FILE_SHARE_WRITE,
+            IntPtr.Zero, HidNative.OPEN_EXISTING, 0, IntPtr.Zero);
+
     private static SafeFileHandle Open(string path, bool readWrite) =>
         HidNative.CreateFile(path, readWrite ? HidNative.GENERIC_READ | HidNative.GENERIC_WRITE : 0,
             HidNative.FILE_SHARE_READ | HidNative.FILE_SHARE_WRITE, IntPtr.Zero, HidNative.OPEN_EXISTING, 0, IntPtr.Zero);
